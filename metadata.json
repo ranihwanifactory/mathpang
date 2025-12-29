@@ -1,0 +1,5 @@
+{
+  "name": "Math Hero Battle",
+  "description": "A dynamic and colorful mental math battle app for elementary school students. Features real-time multiplayer duels, practice modes, and AI-powered encouragement using Gemini.",
+  "requestFramePermissions": []
+}
