@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { ref, set, get, onValue } from 'firebase/database';
+import { ref, set, get, onValue, onDisconnect, remove } from 'firebase/database';
 import { db, auth } from '../firebase';
 import { UserProfile, RoomData, PlayerState } from '../types';
 import { generateMathQuestions } from '../services/geminiService';
@@ -22,12 +22,10 @@ const LobbyScreen: React.FC<LobbyScreenProps> = ({ user, onJoinRoom }) => {
       if (snapshot.exists()) {
         const data = snapshot.val();
         const roomsList: RoomData[] = Object.values(data);
-        // Filter: Status is waiting, room is not full (max 2 players), and not created by current user
         const activeWaitingRooms = roomsList.filter(room => 
           room.status === 'waiting' && 
           Object.keys(room.players || {}).length < 2
         );
-        // Sort by newest first
         setWaitingRooms(activeWaitingRooms.sort((a, b) => b.createdAt - a.createdAt));
       } else {
         setWaitingRooms([]);
@@ -55,6 +53,7 @@ const LobbyScreen: React.FC<LobbyScreenProps> = ({ user, onJoinRoom }) => {
       
       const newRoom: RoomData = {
         id: code,
+        hostUid: user.uid,
         status: mode === 'practice' ? 'playing' : 'waiting',
         createdAt: Date.now(),
         questions: questions.map((q, idx) => ({ ...q, id: idx })),
@@ -71,7 +70,12 @@ const LobbyScreen: React.FC<LobbyScreenProps> = ({ user, onJoinRoom }) => {
         }
       };
 
-      await set(ref(db, `rooms/${code}`), newRoom);
+      const roomRef = ref(db, `rooms/${code}`);
+      
+      // Auto-delete room if host disconnects
+      onDisconnect(roomRef).remove();
+      
+      await set(roomRef, newRoom);
       onJoinRoom(code);
     } catch (err) {
       setError('방을 만들지 못했어요. 다시 시도해주세요.');
@@ -86,6 +90,7 @@ const LobbyScreen: React.FC<LobbyScreenProps> = ({ user, onJoinRoom }) => {
       setError('올바른 방 코드를 입력하세요.');
       return;
     }
+    setError('');
     try {
       const snapshot = await get(ref(db, `rooms/${code}`));
       if (snapshot.exists()) {
@@ -96,7 +101,7 @@ const LobbyScreen: React.FC<LobbyScreenProps> = ({ user, onJoinRoom }) => {
         }
         onJoinRoom(code);
       } else {
-        setError('존재하지 않는 방 코드예요.');
+        setError('존재하지 않거나 이미 사라진 방이에요.');
       }
     } catch (err) {
       setError('방에 입장할 수 없어요.');
@@ -161,10 +166,13 @@ const LobbyScreen: React.FC<LobbyScreenProps> = ({ user, onJoinRoom }) => {
                   <input
                     type="text"
                     placeholder="코드 입력"
-                    className="flex-1 px-4 py-3 rounded-xl border-2 border-gray-100 focus:border-orange-400 outline-none uppercase tracking-widest text-center font-bold"
+                    className={`flex-1 px-4 py-3 rounded-xl border-2 outline-none uppercase tracking-widest text-center font-bold transition-all ${error ? 'border-red-300 bg-red-50 animate-shake' : 'border-gray-100 focus:border-orange-400'}`}
                     maxLength={4}
                     value={roomCode}
-                    onChange={(e) => setRoomCode(e.target.value)}
+                    onChange={(e) => {
+                      setRoomCode(e.target.value);
+                      if(error) setError('');
+                    }}
                   />
                   <button 
                     onClick={() => joinRoomByCode()}
@@ -173,7 +181,7 @@ const LobbyScreen: React.FC<LobbyScreenProps> = ({ user, onJoinRoom }) => {
                     입장
                   </button>
                 </div>
-                {error && <p className="text-red-500 text-xs mt-2 text-center font-bold">{error}</p>}
+                {error && <p className="text-red-500 text-[11px] mt-2 text-center font-bold">{error}</p>}
               </div>
             </section>
           </div>
@@ -200,7 +208,6 @@ const LobbyScreen: React.FC<LobbyScreenProps> = ({ user, onJoinRoom }) => {
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {waitingRooms.map((room) => {
-                    // Fix: Explicitly cast players object values to PlayerState array to avoid 'unknown' type errors.
                     const playersList = Object.values(room.players) as PlayerState[];
                     const host = playersList[0];
                     if (!host) return null;

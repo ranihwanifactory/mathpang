@@ -25,6 +25,7 @@ export interface PlayerState {
 
 export interface RoomData {
   id: string;
+  hostUid: string; // The creator of the room
   status: 'waiting' | 'playing' | 'finished';
   players: Record<string, PlayerState>;
   questions: Question[];

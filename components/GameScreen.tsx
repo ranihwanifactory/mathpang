@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { ref, onValue, update, get } from 'firebase/database';
+import { ref, onValue, update, get, remove } from 'firebase/database';
 import { db } from '../firebase';
 import { UserProfile, RoomData, PlayerState, Question } from '../types';
 import { getCheerMessage } from '../services/geminiService';
@@ -15,6 +15,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
   const [room, setRoom] = useState<RoomData | null>(null);
   const [answerInput, setAnswerInput] = useState('');
   const [cheer, setCheer] = useState('가즈아! 수학 영웅!');
+  const [isExiting, setIsExiting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -23,11 +24,15 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
       if (snapshot.exists()) {
         setRoom(snapshot.val());
       } else {
-        onExit();
+        // Room was deleted by host or server
+        if (!isExiting) {
+          alert("방장이 방을 나갔거나 방이 삭제되었습니다.");
+          onExit();
+        }
       }
     });
     return () => unsubscribe();
-  }, [roomId, onExit]);
+  }, [roomId, onExit, isExiting]);
 
   useEffect(() => {
     if (room?.status === 'playing') {
@@ -38,6 +43,20 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
       if (p) getCheerMessage(p.score).then(setCheer);
     }
   }, [room?.status, user.uid, room?.players]);
+
+  const handleExit = async () => {
+    setIsExiting(true);
+    if (room) {
+      if (room.hostUid === user.uid) {
+        // Host leaves: Delete entire room
+        await remove(ref(db, `rooms/${roomId}`));
+      } else {
+        // Guest leaves: Just remove self from players
+        await remove(ref(db, `rooms/${roomId}/players/${user.uid}`));
+      }
+    }
+    onExit();
+  };
 
   const handleReady = async () => {
     await update(ref(db, `rooms/${roomId}/players/${user.uid}`), { isReady: true });
@@ -98,7 +117,13 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
     <div className="min-h-screen bg-indigo-50 flex flex-col overflow-hidden">
       {/* HUD Bar */}
       <div className="bg-white px-6 py-4 shadow-md flex items-center justify-between z-10">
-        <button onClick={onExit} className="bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded-xl text-gray-600 font-bold transition-all">← 나갈래</button>
+        <button 
+          onClick={handleExit} 
+          className="bg-gray-100 hover:bg-red-100 hover:text-red-600 px-4 py-2 rounded-xl text-gray-600 font-bold transition-all flex items-center gap-2"
+        >
+          <span>← 나갈래</span>
+          {room.hostUid === user.uid && <span className="text-[10px] bg-red-500 text-white px-1.5 py-0.5 rounded">방폭파</span>}
+        </button>
         <div className="flex gap-4">
           <div className="flex flex-col items-center">
             <span className="text-[10px] text-gray-400 font-bold uppercase">내 점수</span>
@@ -120,7 +145,6 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
       </div>
 
       <div className="flex-1 flex flex-col lg:flex-row p-4 gap-4">
-        {/* Battle Arena */}
         <div className="flex-1 bg-white rounded-[2.5rem] shadow-xl p-6 flex flex-col relative overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-400 via-indigo-400 to-purple-400"></div>
           
@@ -225,7 +249,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
                    </div>
                 </div>
 
-                <button onClick={onExit} className="bg-gray-800 hover:bg-black text-white px-16 py-4 rounded-2xl font-bold text-xl shadow-lg transition-all active:scale-95">로비로 이동</button>
+                <button onClick={handleExit} className="bg-gray-800 hover:bg-black text-white px-16 py-4 rounded-2xl font-bold text-xl shadow-lg transition-all active:scale-95">로비로 이동</button>
               </div>
             )}
           </div>
