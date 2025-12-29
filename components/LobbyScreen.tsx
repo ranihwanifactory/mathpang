@@ -23,6 +23,7 @@ const LobbyScreen: React.FC<LobbyScreenProps> = ({ user, onJoinRoom }) => {
         const data = snapshot.val();
         const roomsList: RoomData[] = Object.values(data);
         const activeWaitingRooms = roomsList.filter(room => 
+          room && 
           room.status === 'waiting' && 
           Object.keys(room.players || {}).length < 2
         );
@@ -71,8 +72,6 @@ const LobbyScreen: React.FC<LobbyScreenProps> = ({ user, onJoinRoom }) => {
       };
 
       const roomRef = ref(db, `rooms/${code}`);
-      
-      // Auto-delete room if host disconnects
       onDisconnect(roomRef).remove();
       
       await set(roomRef, newRoom);
@@ -95,7 +94,8 @@ const LobbyScreen: React.FC<LobbyScreenProps> = ({ user, onJoinRoom }) => {
       const snapshot = await get(ref(db, `rooms/${code}`));
       if (snapshot.exists()) {
         const room = snapshot.val() as RoomData;
-        if (Object.keys(room.players || {}).length >= 2 && !room.players[user.uid]) {
+        const playersCount = Object.keys(room.players || {}).length;
+        if (playersCount >= 2 && !room.players[user.uid]) {
           setError('방이 이미 가득 찼어요.');
           return;
         }
@@ -131,8 +131,6 @@ const LobbyScreen: React.FC<LobbyScreenProps> = ({ user, onJoinRoom }) => {
 
       <main className="w-full max-w-5xl space-y-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          
-          {/* Battle & Practice Actions */}
           <div className="lg:col-span-1 space-y-6">
             <section className="bg-white rounded-3xl p-6 shadow-xl border-t-8 border-orange-400 h-full">
               <div className="flex items-center gap-4 mb-6">
@@ -166,7 +164,7 @@ const LobbyScreen: React.FC<LobbyScreenProps> = ({ user, onJoinRoom }) => {
                   <input
                     type="text"
                     placeholder="코드 입력"
-                    className={`flex-1 px-4 py-3 rounded-xl border-2 outline-none uppercase tracking-widest text-center font-bold transition-all ${error ? 'border-red-300 bg-red-50 animate-shake' : 'border-gray-100 focus:border-orange-400'}`}
+                    className={`flex-1 px-4 py-3 rounded-xl border-2 outline-none uppercase tracking-widest text-center font-bold transition-all ${error ? 'border-red-300 bg-red-50' : 'border-gray-100 focus:border-orange-400'}`}
                     maxLength={4}
                     value={roomCode}
                     onChange={(e) => {
@@ -186,7 +184,6 @@ const LobbyScreen: React.FC<LobbyScreenProps> = ({ user, onJoinRoom }) => {
             </section>
           </div>
 
-          {/* Waiting Rooms List */}
           <div className="lg:col-span-2">
             <section className="bg-white rounded-3xl p-6 shadow-xl border-t-8 border-blue-400 min-h-[400px]">
               <div className="flex items-center justify-between mb-6">
@@ -208,7 +205,7 @@ const LobbyScreen: React.FC<LobbyScreenProps> = ({ user, onJoinRoom }) => {
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {waitingRooms.map((room) => {
-                    const playersList = Object.values(room.players) as PlayerState[];
+                    const playersList = Object.values(room.players || {}) as PlayerState[];
                     const host = playersList[0];
                     if (!host) return null;
                     return (

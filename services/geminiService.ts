@@ -12,15 +12,19 @@ const WORD_PROBLEMS: Omit<Question, 'id'>[] = [
   { expression: "어제는 책을 15페이지 읽었고, 오늘은 23페이지 읽었습니다. 이틀 동안 읽은 페이지는?", answer: 38, type: 'word' },
   { expression: "색종이가 80장 있었는데 35장을 썼습니다. 남은 색종이는 몇 장인가요?", answer: 45, type: 'word' },
   { expression: "토끼가 14마리, 닭이 6마리 있습니다. 동물들의 다리는 모두 합쳐 몇 개인가요? (토끼 4개, 닭 2개)", answer: 68, type: 'word' },
+  { expression: "문구점에서 500원짜리 공책 한 권과 300원짜리 지우개 한 개를 샀습니다. 모두 얼마인가요?", answer: 800, type: 'word' },
+  { expression: "초콜릿 24개를 친구 3명에게 똑같이 나누어 주면 한 명당 몇 개씩 가질까요?", answer: 8, type: 'word' },
+  { expression: "꽃밭에 나비가 12마리 앉아 있었는데 5마리가 더 날아왔습니다. 나비는 모두 몇 마리인가요?", answer: 17, type: 'word' },
+  { expression: "야구공이 30개 있습니다. 6개씩 상자에 담으면 상자는 몇 개가 필요한가요?", answer: 5, type: 'word' },
+  { expression: "아침에 우유를 250ml 마셨고, 오후에 300ml 더 마셨습니다. 마신 우유는 총 몇 ml인가요?", answer: 550, type: 'word' }
 ];
 
 export const generateMathQuestions = async (count: number = 9): Promise<Question[]> => {
   const pool: Omit<Question, 'id'>[] = [...WORD_PROBLEMS];
   
-  // Fill the rest with random calculations to reach at least 100 distinct items conceptually
-  // In practice, we generate them dynamically but ensure the same set is picked for the room.
   const operators = ['+', '-', '×'];
-  while (pool.length < 100) {
+  // Ensure we have a large enough virtual pool for variety
+  while (pool.length < 150) {
     const op = operators[Math.floor(Math.random() * operators.length)];
     let a, b, expression, answer;
     if (op === '+') {
@@ -61,7 +65,9 @@ export const getCheerMessage = async (score: number): Promise<string> => {
     "와! 엄청난 실력이네요! 박수!",
     "수학 영웅 탄생! 정말 대단해요!",
     "최고의 집중력이에요! 다음엔 더 잘할 수 있어요!",
-    "친구와 함께하니 더 즐겁죠? 수고했어요!"
+    "친구와 함께하니 더 즐겁죠? 수고했어요!",
+    "계산 실력이 정말 대단해요! 놀라워요!",
+    "다음 판에는 만점에 도전해볼까요? 화이팅!"
   ];
   return messages[Math.floor(Math.random() * messages.length)];
 };

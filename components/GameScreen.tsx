@@ -24,7 +24,6 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
       if (snapshot.exists()) {
         setRoom(snapshot.val());
       } else {
-        // Room was deleted by host or server
         if (!isExiting) {
           alert("방장이 방을 나갔거나 방이 삭제되었습니다.");
           onExit();
@@ -39,7 +38,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
       inputRef.current?.focus();
     }
     if (room?.status === 'finished') {
-      const p = room.players[user.uid];
+      const p = room.players?.[user.uid];
       if (p) getCheerMessage(p.score).then(setCheer);
     }
   }, [room?.status, user.uid, room?.players]);
@@ -48,10 +47,8 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
     setIsExiting(true);
     if (room) {
       if (room.hostUid === user.uid) {
-        // Host leaves: Delete entire room
         await remove(ref(db, `rooms/${roomId}`));
       } else {
-        // Guest leaves: Just remove self from players
         await remove(ref(db, `rooms/${roomId}/players/${user.uid}`));
       }
     }
@@ -61,7 +58,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
   const handleReady = async () => {
     await update(ref(db, `rooms/${roomId}/players/${user.uid}`), { isReady: true });
     if (room) {
-      const players = Object.values(room.players) as PlayerState[];
+      const players = Object.values(room.players || {}) as PlayerState[];
       const readyCount = players.filter(p => p.isReady || p.uid === user.uid).length;
       if (readyCount === players.length) {
         await update(ref(db, `rooms/${roomId}`), { status: 'playing' });
@@ -73,8 +70,8 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
     e?.preventDefault();
     if (!room || room.status !== 'playing') return;
 
-    const player = room.players[user.uid];
-    if (player.isFinished) return;
+    const player = room.players?.[user.uid];
+    if (!player || player.isFinished) return;
 
     const currentQuestion = room.questions[player.currentQuestionIndex];
     const isCorrect = parseInt(answerInput) === currentQuestion.answer;
@@ -91,16 +88,17 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
     setAnswerInput('');
     await update(ref(db), updates);
 
-    // Final check for room completion
     const snapshot = await get(ref(db, `rooms/${roomId}/players`));
     if (snapshot.exists()) {
-      const players = Object.values(snapshot.val()) as PlayerState[];
+      const players = Object.values(snapshot.val() || {}) as PlayerState[];
       if (players.every(p => p.isFinished)) {
         let winnerUid: string | 'draw' = 'draw';
         if (players.length > 1) {
           if (players[0].score > players[1].score) winnerUid = players[0].uid;
           else if (players[1].score > players[0].score) winnerUid = players[1].uid;
-        } else { winnerUid = players[0].uid; }
+        } else if (players.length === 1) { 
+          winnerUid = players[0].uid; 
+        }
         await update(ref(db, `rooms/${roomId}`), { status: 'finished', winnerUid });
       }
     }
@@ -108,14 +106,15 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
 
   if (!room) return null;
 
-  const player = room.players[user.uid];
-  const playersList = Object.values(room.players) as PlayerState[];
+  const player = room.players?.[user.uid];
+  if (!player) return null;
+
+  const playersList = Object.values(room.players || {}) as PlayerState[];
   const opponent = playersList.find(p => p.uid !== user.uid);
   const totalQuestions = room.questions.length;
 
   return (
     <div className="min-h-screen bg-indigo-50 flex flex-col overflow-hidden">
-      {/* HUD Bar */}
       <div className="bg-white px-6 py-4 shadow-md flex items-center justify-between z-10">
         <button 
           onClick={handleExit} 
@@ -148,7 +147,6 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
         <div className="flex-1 bg-white rounded-[2.5rem] shadow-xl p-6 flex flex-col relative overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-400 via-indigo-400 to-purple-400"></div>
           
-          {/* Progress Indicators */}
           <div className="grid grid-cols-1 gap-4 mb-8">
              <div className="relative pt-1">
                 <div className="flex mb-2 items-center justify-between">
@@ -174,12 +172,12 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
 
           <div className="flex-1 flex flex-col items-center justify-center">
             {room.status === 'waiting' && (
-              <div className="text-center animate-bounce-slow">
+              <div className="text-center">
                 <h2 className="text-3xl font-bold text-gray-800 mb-6">준비되셨나요?</h2>
                 {!player.isReady ? (
                   <button onClick={handleReady} className="bg-yellow-400 hover:bg-yellow-500 text-yellow-900 font-bold px-12 py-5 rounded-3xl shadow-xl text-3xl transform hover:scale-105 active:scale-95 transition-all">전투 시작!</button>
                 ) : (
-                  <div className="text-blue-500 font-bold text-xl">상대를 기다리고 있어요...</div>
+                  <div className="text-blue-500 font-bold text-xl animate-pulse">상대를 기다리고 있어요...</div>
                 )}
               </div>
             )}
@@ -201,7 +199,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
                     ref={inputRef}
                     type="number"
                     inputMode="numeric"
-                    placeholder="정답을 입력하세요"
+                    placeholder="정답"
                     className="w-full text-4xl text-center font-bold px-4 py-6 rounded-3xl border-4 border-indigo-100 focus:border-indigo-400 outline-none transition-all shadow-inner"
                     value={answerInput}
                     onChange={(e) => setAnswerInput(e.target.value)}
