@@ -1,74 +1,67 @@
 
-/**
- * Generates math questions locally without using Gemini API.
- * Returns an array of objects with expression and answer.
- */
-export const generateMathQuestions = async (count: number = 9): Promise<{ expression: string; answer: number }[]> => {
-  const questions: { expression: string; answer: number }[] = [];
-  const operators = ['+', '-', '×'];
+import { Question } from '../types';
 
-  for (let i = 0; i < count; i++) {
+const WORD_PROBLEMS: Omit<Question, 'id'>[] = [
+  { expression: "사과가 15개 있었는데, 동생이 7개를 먹었어요. 남은 사과는 몇 개인가요?", answer: 8, type: 'word' },
+  { expression: "연필 한 다스(12자루)가 2개 있습니다. 연필은 모두 몇 자루인가요?", answer: 24, type: 'word' },
+  { expression: "버스에 사람이 25명 타고 있었어요. 정류장에서 9명이 내리고 3명이 탔습니다. 지금 버스에는 몇 명이 있나요?", answer: 19, type: 'word' },
+  { expression: "한 바구니에 귤이 8개씩 들어있습니다. 4바구니에는 귤이 총 몇 개 있나요?", answer: 32, type: 'word' },
+  { expression: "철수는 사탕을 42개, 영희는 28개 가지고 있습니다. 두 사람이 가진 사탕은 모두 몇 개인가요?", answer: 70, type: 'word' },
+  { expression: "다리가 4개인 강아지가 9마리 있습니다. 강아지 다리는 모두 몇 개인가요?", answer: 36, type: 'word' },
+  { expression: "빵 50개를 10명에게 똑같이 나누어 주려고 합니다. 한 명당 몇 개씩 받을까요?", answer: 5, type: 'word' },
+  { expression: "어제는 책을 15페이지 읽었고, 오늘은 23페이지 읽었습니다. 이틀 동안 읽은 페이지는?", answer: 38, type: 'word' },
+  { expression: "색종이가 80장 있었는데 35장을 썼습니다. 남은 색종이는 몇 장인가요?", answer: 45, type: 'word' },
+  { expression: "토끼가 14마리, 닭이 6마리 있습니다. 동물들의 다리는 모두 합쳐 몇 개인가요? (토끼 4개, 닭 2개)", answer: 68, type: 'word' },
+];
+
+export const generateMathQuestions = async (count: number = 9): Promise<Question[]> => {
+  const pool: Omit<Question, 'id'>[] = [...WORD_PROBLEMS];
+  
+  // Fill the rest with random calculations to reach at least 100 distinct items conceptually
+  // In practice, we generate them dynamically but ensure the same set is picked for the room.
+  const operators = ['+', '-', '×'];
+  while (pool.length < 100) {
     const op = operators[Math.floor(Math.random() * operators.length)];
     let a, b, expression, answer;
-
     if (op === '+') {
-      a = Math.floor(Math.random() * 45) + 5;
-      b = Math.floor(Math.random() * 45) + 5;
+      a = Math.floor(Math.random() * 80) + 10;
+      b = Math.floor(Math.random() * 80) + 10;
       expression = `${a} + ${b}`;
       answer = a + b;
     } else if (op === '-') {
-      a = Math.floor(Math.random() * 50) + 20;
-      b = Math.floor(Math.random() * (a - 5)) + 5; // Ensure positive result >= 5
+      a = Math.floor(Math.random() * 90) + 20;
+      b = Math.floor(Math.random() * (a - 5)) + 5;
       expression = `${a} - ${b}`;
       answer = a - b;
     } else {
-      // Multiplication table (2x1 to 9x9)
-      a = Math.floor(Math.random() * 8) + 2;
+      a = Math.floor(Math.random() * 11) + 2;
       b = Math.floor(Math.random() * 9) + 1;
       expression = `${a} × ${b}`;
       answer = a * b;
     }
-    questions.push({ expression, answer });
+    pool.push({ expression, answer, type: 'calc' });
   }
 
-  // Simulate a tiny delay for a "generating" feel
+  // Shuffle and pick 'count' questions
+  const shuffled = [...pool].sort(() => Math.random() - 0.5);
+  const selected = shuffled.slice(0, count).map((q, idx) => ({
+    ...q,
+    id: idx
+  }));
+
   return new Promise((resolve) => {
-    setTimeout(() => resolve(questions), 300);
+    setTimeout(() => resolve(selected), 300);
   });
 };
 
-/**
- * Gets a random encouraging cheer message locally.
- */
 export const getCheerMessage = async (score: number): Promise<string> => {
-  const highScores = [
-    "와! 정말 대단한 실력이에요! 만점 박사님!",
-    "수학의 신이 여기 있었네요! 완벽합니다!",
-    "친구들 중 최고일 거예요! 정말 멋져요!",
-    "계산 속도가 빛보다 빠르네요! 최고!"
+  const messages = [
+    "포기하지 마세요! 당신은 할 수 있어요!",
+    "거의 다 왔어요! 조금만 더 힘내세요!",
+    "와! 엄청난 실력이네요! 박수!",
+    "수학 영웅 탄생! 정말 대단해요!",
+    "최고의 집중력이에요! 다음엔 더 잘할 수 있어요!",
+    "친구와 함께하니 더 즐겁죠? 수고했어요!"
   ];
-  
-  const midScores = [
-    "실력이 쑥쑥 늘고 있어요! 조금만 더 해볼까요?",
-    "정말 잘했어요! 다음엔 더 높은 점수에 도전해요!",
-    "포기하지 않고 끝까지 해낸 당신이 진정한 영웅!",
-    "멋진 집중력이었어요! 대단해요!"
-  ];
-
-  const lowScores = [
-    "괜찮아요! 연습하면 누구나 수학 왕이 될 수 있어요!",
-    "조금 아쉽지만, 노력하는 모습이 정말 예뻐요!",
-    "다음에 다시 도전해서 실력을 보여주세요! 화이팅!",
-    "실수는 성공의 어머니! 다시 한 번 해볼까요?"
-  ];
-
-  let selectedList = lowScores;
-  if (score >= 9) selectedList = highScores;
-  else if (score >= 5) selectedList = midScores;
-
-  const randomMessage = selectedList[Math.floor(Math.random() * selectedList.length)];
-  
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(randomMessage), 100);
-  });
+  return messages[Math.floor(Math.random() * messages.length)];
 };

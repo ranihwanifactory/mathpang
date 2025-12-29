@@ -10,6 +10,7 @@ export interface Question {
   id: number;
   expression: string;
   answer: number;
+  type?: 'calc' | 'word'; // 'calc' for 1+1, 'word' for story problems
 }
 
 export interface PlayerState {
