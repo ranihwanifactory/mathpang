@@ -156,12 +156,17 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
     
     const nextIndex = player.currentQuestionIndex + 1;
     const isFinished = nextIndex >= room.questions.length;
+    const now = Date.now();
 
     const updates: any = {
       [`rooms/${roomId}/players/${user.uid}/score`]: isCorrect ? player.score + 1 : player.score,
       [`rooms/${roomId}/players/${user.uid}/currentQuestionIndex`]: nextIndex,
       [`rooms/${roomId}/players/${user.uid}/isFinished`]: isFinished,
     };
+    
+    if (isFinished) {
+      updates[`rooms/${roomId}/players/${user.uid}/finishedAt`] = now;
+    }
 
     setAnswerInput('');
     await update(ref(db), updates);
@@ -171,9 +176,28 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
       const players = Object.values(snapshot.val() || {}) as PlayerState[];
       if (players.every(p => p.isFinished)) {
         let winnerUid: string | 'draw' = 'draw';
+        
         if (players.length > 1) {
-          if (players[0].score > players[1].score) winnerUid = players[0].uid;
-          else if (players[1].score > players[0].score) winnerUid = players[1].uid;
+          const p1 = players[0];
+          const p2 = players[1];
+          
+          if (p1.score > p2.score) {
+            winnerUid = p1.uid;
+          } else if (p2.score > p1.score) {
+            winnerUid = p2.uid;
+          } else {
+            // Scores are tied: tie-breaker is finishedAt (who finished first)
+            const t1 = p1.finishedAt || now;
+            const t2 = p2.finishedAt || now;
+            
+            if (t1 < t2) {
+              winnerUid = p1.uid;
+            } else if (t2 < t1) {
+              winnerUid = p2.uid;
+            } else {
+              winnerUid = 'draw';
+            }
+          }
         } else if (players.length === 1) { 
           winnerUid = players[0].uid; 
         }
@@ -366,6 +390,11 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
                 
                 <div className="bg-white border-4 border-indigo-100 rounded-[2.5rem] p-8 my-8 shadow-2xl animate-slide-up-fade delay-200 opacity-0" style={{ animationFillMode: 'forwards' }}>
                    <div className="text-gray-600 text-xl mb-6 italic font-bold">"{cheer}"</div>
+                   {room.winnerUid !== 'draw' && playersList.length > 1 && playersList.every(p => p.score === playersList[0].score) && (
+                     <div className="mb-4 text-sm font-bold text-orange-500 animate-pulse">
+                       점수가 같아서 더 빨리 푼 사람이 승리했어요! ⚡️
+                     </div>
+                   )}
                    <div className="grid grid-cols-2 gap-6">
                       {playersList.map((p, idx) => (
                         <div 

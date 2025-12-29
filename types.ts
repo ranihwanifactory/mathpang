@@ -21,6 +21,7 @@ export interface PlayerState {
   currentQuestionIndex: number;
   isReady: boolean;
   isFinished: boolean;
+  finishedAt?: number; // Timestamp when the user finished the last question
 }
 
 export interface RoomData {
