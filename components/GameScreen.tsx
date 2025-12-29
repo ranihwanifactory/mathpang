@@ -40,7 +40,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
   const [cheer, setCheer] = useState('가즈아! 수학 영웅!');
   const [isExiting, setIsExiting] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
-  const [copySuccess, setCopySuccess] = useState(false);
+  const [shareSuccess, setShareSuccess] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // 1. Sync room data
@@ -134,11 +134,32 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
     }
   };
 
-  const copyInviteLink = () => {
-    const link = `${window.location.origin}${window.location.pathname}#/join/${roomId}`;
-    navigator.clipboard.writeText(link).then(() => {
-      setCopySuccess(true);
-      setTimeout(() => setCopySuccess(false), 2000);
+  const shareInviteLink = async () => {
+    const inviteUrl = `${window.location.origin}${window.location.pathname}#/join/${roomId}`;
+    const shareData = {
+      title: '수학 대장 대결 초대!',
+      text: `${user.displayName}님이 수학 대결에 초대했습니다! 방 번호: ${roomId}`,
+      url: inviteUrl,
+    };
+
+    if (navigator.share) {
+      try {
+        await navigator.share(shareData);
+      } catch (err) {
+        console.log('Error sharing', err);
+        // Fallback to copy
+        copyToClipboard(inviteUrl);
+      }
+    } else {
+      // Fallback for browsers that don't support Web Share API
+      copyToClipboard(inviteUrl);
+    }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setShareSuccess(true);
+      setTimeout(() => setShareSuccess(false), 2000);
     });
   };
 
@@ -305,19 +326,16 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
                 
                 <div className="bg-indigo-50 p-6 rounded-3xl mb-8 border-2 border-indigo-100 animate-slide-up-fade delay-100">
                   <p className="text-indigo-600 font-bold mb-4">친구를 초대해보세요!</p>
-                  <div className="flex gap-2">
-                    <input 
-                      readOnly 
-                      value={`${window.location.origin}${window.location.pathname}#/join/${roomId}`}
-                      className="flex-1 bg-white px-4 py-2 rounded-xl text-xs text-gray-500 outline-none border border-indigo-200"
-                    />
-                    <button 
-                      onClick={copyInviteLink}
-                      className={`${copySuccess ? 'bg-green-500' : 'bg-indigo-600'} text-white px-4 py-2 rounded-xl text-sm font-bold transition-all hover:scale-105`}
-                    >
-                      {copySuccess ? '복사됨!' : '링크복사'}
-                    </button>
-                  </div>
+                  <button 
+                    onClick={shareInviteLink}
+                    className={`w-full ${shareSuccess ? 'bg-green-500' : 'bg-indigo-600'} text-white py-4 rounded-2xl text-xl font-bold transition-all shadow-lg transform hover:scale-105 active:scale-95 flex items-center justify-center gap-3`}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                    </svg>
+                    {shareSuccess ? '복사 완료!' : '초대 링크 공유하기'}
+                  </button>
+                  <p className="mt-3 text-[11px] text-gray-400 font-bold">카카오톡이나 문자로 친구에게 보내보세요!</p>
                 </div>
 
                 {!player.isReady ? (
