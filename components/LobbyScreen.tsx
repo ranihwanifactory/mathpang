@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { ref, set, get, onValue, onDisconnect, remove } from 'firebase/database';
 import { db, auth } from '../firebase';
@@ -21,9 +20,9 @@ const LobbyScreen: React.FC<LobbyScreenProps> = ({ user, onJoinRoom }) => {
     const unsubscribe = onValue(roomsRef, (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.val();
-        const roomsList: RoomData[] = Object.values(data);
-        const activeWaitingRooms = roomsList.filter(room => 
-          room && 
+        const roomsList: (RoomData | null)[] = Object.values(data);
+        const activeWaitingRooms = roomsList.filter((room): room is RoomData => 
+          !!room && 
           room.status === 'waiting' && 
           Object.keys(room.players || {}).length < 2
         );
@@ -84,8 +83,8 @@ const LobbyScreen: React.FC<LobbyScreenProps> = ({ user, onJoinRoom }) => {
   };
 
   const joinRoomByCode = async (codeToJoin?: string) => {
-    const code = (codeToJoin || roomCode).toUpperCase();
-    if (!code || code.length < 4) {
+    const code = (codeToJoin || roomCode).trim().toUpperCase();
+    if (!code || code.length < 3) {
       setError('올바른 방 코드를 입력하세요.');
       return;
     }
@@ -94,14 +93,25 @@ const LobbyScreen: React.FC<LobbyScreenProps> = ({ user, onJoinRoom }) => {
       const snapshot = await get(ref(db, `rooms/${code}`));
       if (snapshot.exists()) {
         const room = snapshot.val() as RoomData;
+        
+        // If the user is already a player, let them in
+        if (room.players && room.players[user.uid]) {
+          onJoinRoom(code);
+          return;
+        }
+
         const playersCount = Object.keys(room.players || {}).length;
-        if (playersCount >= 2 && !room.players[user.uid]) {
+        if (playersCount >= 2) {
           setError('방이 이미 가득 찼어요.');
+          return;
+        }
+        if (room.status !== 'waiting') {
+          setError('이미 게임이 시작된 방이에요.');
           return;
         }
         onJoinRoom(code);
       } else {
-        setError('존재하지 않거나 이미 사라진 방이에요.');
+        setError('존재하지 않거나 사라진 방이에요.');
       }
     } catch (err) {
       setError('방에 입장할 수 없어요.');
@@ -131,6 +141,7 @@ const LobbyScreen: React.FC<LobbyScreenProps> = ({ user, onJoinRoom }) => {
 
       <main className="w-full max-w-5xl space-y-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Battle & Practice Actions */}
           <div className="lg:col-span-1 space-y-6">
             <section className="bg-white rounded-3xl p-6 shadow-xl border-t-8 border-orange-400 h-full">
               <div className="flex items-center gap-4 mb-6">
@@ -164,13 +175,14 @@ const LobbyScreen: React.FC<LobbyScreenProps> = ({ user, onJoinRoom }) => {
                   <input
                     type="text"
                     placeholder="코드 입력"
-                    className={`flex-1 px-4 py-3 rounded-xl border-2 outline-none uppercase tracking-widest text-center font-bold transition-all ${error ? 'border-red-300 bg-red-50' : 'border-gray-100 focus:border-orange-400'}`}
+                    className={`flex-1 px-4 py-3 rounded-xl border-2 outline-none uppercase tracking-widest text-center font-bold transition-all ${error ? 'border-red-300 bg-red-50 animate-shake' : 'border-gray-100 focus:border-orange-400'}`}
                     maxLength={4}
                     value={roomCode}
                     onChange={(e) => {
                       setRoomCode(e.target.value);
                       if(error) setError('');
                     }}
+                    onKeyPress={(e) => e.key === 'Enter' && joinRoomByCode()}
                   />
                   <button 
                     onClick={() => joinRoomByCode()}
@@ -184,6 +196,7 @@ const LobbyScreen: React.FC<LobbyScreenProps> = ({ user, onJoinRoom }) => {
             </section>
           </div>
 
+          {/* Waiting Rooms List */}
           <div className="lg:col-span-2">
             <section className="bg-white rounded-3xl p-6 shadow-xl border-t-8 border-blue-400 min-h-[400px]">
               <div className="flex items-center justify-between mb-6">

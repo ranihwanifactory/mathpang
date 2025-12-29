@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { ref, onValue, update, get, remove } from 'firebase/database';
 import { db } from '../firebase';
@@ -11,18 +10,46 @@ interface GameScreenProps {
   onExit: () => void;
 }
 
+const AnimatedScore: React.FC<{ target: number }> = ({ target }) => {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    let start = 0;
+    const duration = 1000; // 1 second
+    const increment = target / (duration / 16); // 60fps approx
+
+    const timer = setInterval(() => {
+      start += increment;
+      if (start >= target) {
+        setCount(target);
+        clearInterval(timer);
+      } else {
+        setCount(Math.floor(start));
+      }
+    }, 16);
+
+    return () => clearInterval(timer);
+  }, [target]);
+
+  return <span className={count === target ? "animate-count-pop" : ""}>{count}점</span>;
+};
+
 const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
   const [room, setRoom] = useState<RoomData | null>(null);
   const [answerInput, setAnswerInput] = useState('');
   const [cheer, setCheer] = useState('가즈아! 수학 영웅!');
   const [isExiting, setIsExiting] = useState(false);
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [copySuccess, setCopySuccess] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // 1. Sync room data
   useEffect(() => {
     const roomRef = ref(db, `rooms/${roomId}`);
     const unsubscribe = onValue(roomRef, (snapshot) => {
       if (snapshot.exists()) {
-        setRoom(snapshot.val());
+        const data = snapshot.val() as RoomData;
+        setRoom(data);
       } else {
         if (!isExiting) {
           alert("방장이 방을 나갔거나 방이 삭제되었습니다.");
@@ -32,6 +59,45 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
     });
     return () => unsubscribe();
   }, [roomId, onExit, isExiting]);
+
+  // 2. Handle missing player registration
+  useEffect(() => {
+    if (room && !room.players?.[user.uid] && !isRegistering && !isExiting) {
+      if (room.status !== 'waiting') {
+        alert("이미 시작된 게임에는 입장할 수 없어요.");
+        onExit();
+        return;
+      }
+      
+      const playersCount = Object.keys(room.players || {}).length;
+      if (playersCount >= 2) {
+        alert("방이 이미 가득 찼어요.");
+        onExit();
+        return;
+      }
+
+      const registerPlayer = async () => {
+        setIsRegistering(true);
+        try {
+          const newPlayerData: PlayerState = {
+            uid: user.uid,
+            displayName: user.displayName,
+            photoURL: user.photoURL,
+            score: 0,
+            currentQuestionIndex: 0,
+            isReady: false,
+            isFinished: false,
+          };
+          await update(ref(db, `rooms/${roomId}/players/${user.uid}`), newPlayerData);
+        } catch (e) {
+          console.error("Failed to register player:", e);
+        } finally {
+          setIsRegistering(false);
+        }
+      };
+      registerPlayer();
+    }
+  }, [room, user, roomId, isRegistering, isExiting, onExit]);
 
   useEffect(() => {
     if (room?.status === 'playing') {
@@ -57,13 +123,23 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
 
   const handleReady = async () => {
     await update(ref(db, `rooms/${roomId}/players/${user.uid}`), { isReady: true });
-    if (room) {
-      const players = Object.values(room.players || {}) as PlayerState[];
-      const readyCount = players.filter(p => p.isReady || p.uid === user.uid).length;
-      if (readyCount === players.length) {
+    const snapshot = await get(ref(db, `rooms/${roomId}`));
+    if (snapshot.exists()) {
+      const currentRoom = snapshot.val() as RoomData;
+      const players = Object.values(currentRoom.players || {}) as PlayerState[];
+      const readyCount = players.filter(p => p.isReady).length;
+      if (readyCount === players.length && players.length >= 1) {
         await update(ref(db, `rooms/${roomId}`), { status: 'playing' });
       }
     }
+  };
+
+  const copyInviteLink = () => {
+    const link = `${window.location.origin}${window.location.pathname}#/join/${roomId}`;
+    navigator.clipboard.writeText(link).then(() => {
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    });
   };
 
   const submitAnswer = useCallback(async (e?: React.FormEvent) => {
@@ -74,6 +150,8 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
     if (!player || player.isFinished) return;
 
     const currentQuestion = room.questions[player.currentQuestionIndex];
+    if (!currentQuestion) return;
+
     const isCorrect = parseInt(answerInput) === currentQuestion.answer;
     
     const nextIndex = player.currentQuestionIndex + 1;
@@ -104,10 +182,28 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
     }
   }, [answerInput, room, roomId, user.uid]);
 
-  if (!room) return null;
+  if (!room) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-indigo-50">
+        <div className="text-center animate-pulse">
+          <div className="text-4xl mb-4">🚪</div>
+          <p className="text-indigo-600 font-bold text-xl">방에 입장하고 있어요...</p>
+        </div>
+      </div>
+    );
+  }
 
   const player = room.players?.[user.uid];
-  if (!player) return null;
+  if (!player) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-indigo-50">
+        <div className="text-center animate-pulse">
+          <div className="text-4xl mb-4">📝</div>
+          <p className="text-indigo-600 font-bold text-xl">참가자 명단에 등록 중...</p>
+        </div>
+      </div>
+    );
+  }
 
   const playersList = Object.values(room.players || {}) as PlayerState[];
   const opponent = playersList.find(p => p.uid !== user.uid);
@@ -115,6 +211,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
 
   return (
     <div className="min-h-screen bg-indigo-50 flex flex-col overflow-hidden">
+      {/* HUD Bar */}
       <div className="bg-white px-6 py-4 shadow-md flex items-center justify-between z-10">
         <button 
           onClick={handleExit} 
@@ -147,10 +244,14 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
         <div className="flex-1 bg-white rounded-[2.5rem] shadow-xl p-6 flex flex-col relative overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-400 via-indigo-400 to-purple-400"></div>
           
+          {/* Progress Indicators */}
           <div className="grid grid-cols-1 gap-4 mb-8">
              <div className="relative pt-1">
                 <div className="flex mb-2 items-center justify-between">
-                   <div><span className="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full text-blue-600 bg-blue-200">나 (Hero)</span></div>
+                   <div className="flex items-center gap-2">
+                     <span className="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full text-blue-600 bg-blue-200">나 (Hero)</span>
+                     {player.isReady && room.status === 'waiting' && <span className="text-[10px] text-green-500 font-bold">READY!</span>}
+                   </div>
                    <div className="text-right"><span className="text-xs font-semibold inline-block text-blue-600">{Math.round((player.currentQuestionIndex / totalQuestions) * 100)}%</span></div>
                 </div>
                 <div className="overflow-hidden h-4 mb-4 text-xs flex rounded-full bg-blue-100 border border-blue-200 shadow-inner">
@@ -160,7 +261,10 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
              {opponent && (
                <div className="relative pt-1">
                   <div className="flex mb-2 items-center justify-between">
-                     <div><span className="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full text-red-600 bg-red-200">상대 (Rival)</span></div>
+                     <div className="flex items-center gap-2">
+                       <span className="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full text-red-600 bg-red-200">상대 (Rival)</span>
+                       {opponent.isReady && room.status === 'waiting' && <span className="text-[10px] text-green-500 font-bold">READY!</span>}
+                     </div>
                      <div className="text-right"><span className="text-xs font-semibold inline-block text-red-600">{Math.round((opponent.currentQuestionIndex / totalQuestions) * 100)}%</span></div>
                   </div>
                   <div className="overflow-hidden h-4 mb-4 text-xs flex rounded-full bg-red-100 border border-red-200 shadow-inner">
@@ -172,29 +276,55 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
 
           <div className="flex-1 flex flex-col items-center justify-center">
             {room.status === 'waiting' && (
-              <div className="text-center">
-                <h2 className="text-3xl font-bold text-gray-800 mb-6">준비되셨나요?</h2>
+              <div className="text-center w-full max-w-md">
+                <h2 className="text-3xl font-bold text-gray-800 mb-6 animate-pop-in">수학 영웅을 기다려요!</h2>
+                
+                <div className="bg-indigo-50 p-6 rounded-3xl mb-8 border-2 border-indigo-100 animate-slide-up-fade delay-100">
+                  <p className="text-indigo-600 font-bold mb-4">친구를 초대해보세요!</p>
+                  <div className="flex gap-2">
+                    <input 
+                      readOnly 
+                      value={`${window.location.origin}${window.location.pathname}#/join/${roomId}`}
+                      className="flex-1 bg-white px-4 py-2 rounded-xl text-xs text-gray-500 outline-none border border-indigo-200"
+                    />
+                    <button 
+                      onClick={copyInviteLink}
+                      className={`${copySuccess ? 'bg-green-500' : 'bg-indigo-600'} text-white px-4 py-2 rounded-xl text-sm font-bold transition-all hover:scale-105`}
+                    >
+                      {copySuccess ? '복사됨!' : '링크복사'}
+                    </button>
+                  </div>
+                </div>
+
                 {!player.isReady ? (
-                  <button onClick={handleReady} className="bg-yellow-400 hover:bg-yellow-500 text-yellow-900 font-bold px-12 py-5 rounded-3xl shadow-xl text-3xl transform hover:scale-105 active:scale-95 transition-all">전투 시작!</button>
+                  <button 
+                    onClick={handleReady} 
+                    className="w-full bg-yellow-400 hover:bg-yellow-500 text-yellow-900 font-bold py-6 rounded-3xl shadow-xl text-3xl transform hover:scale-105 active:scale-95 transition-all animate-slide-up-fade delay-200"
+                  >
+                    전투 준비!
+                  </button>
                 ) : (
-                  <div className="text-blue-500 font-bold text-xl animate-pulse">상대를 기다리고 있어요...</div>
+                  <div className="flex flex-col items-center gap-4 animate-slide-up-fade delay-200">
+                    <div className="text-6xl animate-bounce-slow">⏳</div>
+                    <div className="text-blue-500 font-bold text-xl">상대방의 준비를 기다리고 있어요...</div>
+                  </div>
                 )}
               </div>
             )}
 
             {room.status === 'playing' && !player.isFinished && (
               <div className="w-full max-w-2xl text-center flex flex-col items-center">
-                <div className={`w-full p-8 rounded-3xl mb-8 border-4 border-dashed transition-all ${room.questions[player.currentQuestionIndex].type === 'word' ? 'bg-orange-50 border-orange-200' : 'bg-white border-blue-100'}`}>
+                <div className={`w-full p-8 rounded-3xl mb-8 border-4 border-dashed transition-all animate-pop-in ${room.questions[player.currentQuestionIndex]?.type === 'word' ? 'bg-orange-50 border-orange-200' : 'bg-white border-blue-100'}`}>
                   <div className="text-xs text-indigo-400 font-bold mb-2 tracking-widest uppercase">
-                    {room.questions[player.currentQuestionIndex].type === 'word' ? '💡 서술형 문제' : '⚡️ 암산 문제'} ({player.currentQuestionIndex + 1}/{totalQuestions})
+                    {room.questions[player.currentQuestionIndex]?.type === 'word' ? '💡 서술형 문제' : '⚡️ 암산 문제'} ({player.currentQuestionIndex + 1}/{totalQuestions})
                   </div>
-                  <div className={`${room.questions[player.currentQuestionIndex].type === 'word' ? 'text-2xl lg:text-3xl' : 'text-5xl lg:text-7xl'} font-bold text-gray-800 leading-tight`}>
-                    {room.questions[player.currentQuestionIndex].expression}
-                    {room.questions[player.currentQuestionIndex].type === 'calc' && ' = ?'}
+                  <div className={`${room.questions[player.currentQuestionIndex]?.type === 'word' ? 'text-2xl lg:text-3xl' : 'text-5xl lg:text-7xl'} font-bold text-gray-800 leading-tight`}>
+                    {room.questions[player.currentQuestionIndex]?.expression}
+                    {room.questions[player.currentQuestionIndex]?.type === 'calc' && ' = ?'}
                   </div>
                 </div>
 
-                <form onSubmit={submitAnswer} className="w-full max-w-sm flex flex-col gap-4">
+                <form onSubmit={submitAnswer} className="w-full max-w-sm flex flex-col gap-4 animate-slide-up-fade delay-100">
                   <input
                     ref={inputRef}
                     type="number"
@@ -211,43 +341,58 @@ const GameScreen: React.FC<GameScreenProps> = ({ user, roomId, onExit }) => {
             )}
 
             {room.status === 'playing' && player.isFinished && (
-              <div className="text-center">
-                <div className="text-6xl mb-6">🎯</div>
+              <div className="text-center animate-pop-in">
+                <div className="text-6xl mb-6 float-anim">🎯</div>
                 <h2 className="text-3xl font-bold text-gray-800 mb-2">모든 문제를 완료했습니다!</h2>
                 <p className="text-gray-500">상대의 결과를 기다리고 있어요...</p>
               </div>
             )}
 
             {room.status === 'finished' && (
-              <div className="text-center w-full max-w-lg">
-                <div className="mb-6">
+              <div className="text-center w-full max-w-lg overflow-visible">
+                <div className="mb-6 animate-pop-in opacity-0" style={{ animationFillMode: 'forwards' }}>
                   {room.winnerUid === user.uid ? (
-                    <div className="text-8xl animate-bounce">🥇</div>
+                    <div className="text-9xl float-anim">🥇</div>
                   ) : room.winnerUid === 'draw' ? (
-                    <div className="text-8xl">🤝</div>
+                    <div className="text-9xl float-anim">🤝</div>
                   ) : (
-                    <div className="text-8xl">🥈</div>
+                    <div className="text-9xl float-anim opacity-60">🥈</div>
                   )}
                 </div>
                 
-                <h2 className="text-5xl font-bold text-gray-800 mb-4">
+                <h2 className="text-6xl font-bold mb-4 text-indigo-600 animate-winner-glow animate-pop-in delay-100 opacity-0" style={{ animationFillMode: 'forwards' }}>
                   {room.winnerUid === user.uid ? '승리했어요!' : room.winnerUid === 'draw' ? '무승부예요!' : '아쉽네요!'}
                 </h2>
                 
-                <div className="bg-white border-4 border-indigo-100 rounded-[2rem] p-8 my-8 shadow-lg">
-                   <div className="text-gray-600 text-lg mb-4 italic font-bold">"{cheer}"</div>
-                   <div className="grid grid-cols-2 gap-4">
-                      {playersList.map(p => (
-                        <div key={p.uid} className={`p-4 rounded-2xl ${p.uid === user.uid ? 'bg-blue-50 border-2 border-blue-200' : 'bg-red-50 border-2 border-red-200'}`}>
-                           <img src={p.photoURL} className="w-12 h-12 rounded-full mx-auto mb-2 border-2 border-white shadow-sm" alt={p.displayName} />
-                           <div className="font-bold text-gray-700 truncate text-sm">{p.displayName}</div>
-                           <div className="text-2xl font-bold text-gray-800">{p.score}점</div>
+                <div className="bg-white border-4 border-indigo-100 rounded-[2.5rem] p-8 my-8 shadow-2xl animate-slide-up-fade delay-200 opacity-0" style={{ animationFillMode: 'forwards' }}>
+                   <div className="text-gray-600 text-xl mb-6 italic font-bold">"{cheer}"</div>
+                   <div className="grid grid-cols-2 gap-6">
+                      {playersList.map((p, idx) => (
+                        <div 
+                            key={p.uid} 
+                            className={`p-6 rounded-3xl animate-slide-up-fade opacity-0 border-4 transition-all hover:scale-105 ${p.uid === user.uid ? 'bg-blue-50 border-blue-200' : 'bg-red-50 border-red-200'}`}
+                            style={{ animationDelay: `${300 + idx * 200}ms`, animationFillMode: 'forwards' }}
+                        >
+                           <div className="relative inline-block mb-3">
+                               <img src={p.photoURL} className="w-16 h-16 rounded-full mx-auto border-4 border-white shadow-md" alt={p.displayName} />
+                               {room.winnerUid === p.uid && <span className="absolute -top-2 -right-2 text-2xl">👑</span>}
+                           </div>
+                           <div className="font-bold text-gray-700 truncate text-lg mb-1">{p.displayName}</div>
+                           <div className="text-4xl font-black text-gray-800">
+                               <AnimatedScore target={p.score} />
+                           </div>
                         </div>
                       ))}
                    </div>
                 </div>
 
-                <button onClick={handleExit} className="bg-gray-800 hover:bg-black text-white px-16 py-4 rounded-2xl font-bold text-xl shadow-lg transition-all active:scale-95">로비로 이동</button>
+                <button 
+                  onClick={handleExit} 
+                  className="bg-gray-800 hover:bg-black text-white px-16 py-5 rounded-[2rem] font-bold text-2xl shadow-xl transition-all active:scale-95 animate-slide-up-fade delay-500 opacity-0" 
+                  style={{ animationFillMode: 'forwards' }}
+                >
+                  로비로 이동
+                </button>
               </div>
             )}
           </div>
